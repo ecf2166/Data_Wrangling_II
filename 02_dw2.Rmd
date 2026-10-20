@@ -174,3 +174,71 @@ vec_sex = fct_relevel(vec_sex, "male") #tells it male is first
 vec_sex
 as.numeric(vec_sex)
 ```
+
+The previous code also illustrates [_coersion_](http://r4ds.had.co.nz/vectors.html#coercion): forcing a variable from one type (e.g. factor) to another (e.g. numeric). Understanding how R coerces variables is important, because it sometimes happens unintentionally and can break your code or impact your analyses. 
+
+For this reason, it's important to be deliberate factors, particularly by using functions in [`forcats`](https://forcats.tidyverse.org).
+
+
+
+### NSDUH
+
+We'll revisit the table scraped from the National Survey on Drug Use and Health data on [this page](http://samhda.s3-us-gov-west-1.amazonaws.com/s3fs-public/field-uploads/2k15StateFiles/NSDUHsaeShortTermCHG2015.htm). In [reading data from the web](reading_data_from_the_web.html), we loaded this data using the code below, but noted it wasn't tidy. 
+
+```{r}
+nsduh_url = "https://www.samhsa.gov/data/sites/default/files/NSDUHsaeShortTermCHG2015/NSDUHsaeShortTermCHG2015.htm"
+
+table_marj = 
+  read_html(nsduh_url) |> 
+  html_table() |> 
+  first() |>
+  slice(-1)
+```
+
+There are a few steps we need to implement to tidy these data. For now I'm not interested in the p-values (I'd rather just see the data); we also have age groups and year ranges in column titles, both of which are, in fact, variables. Lastly, the table includes letters as superscripts next to table entries; if we only want the percents we'll need to strip these out. 
+
+```{r}
+data_marj = 
+  table_marj |>
+  select(-contains("P Value")) |>       #gets rid of columns w p value
+  pivot_longer(
+    -State,                             #pivoting everything except state
+    names_to = "age_year", 
+    values_to = "percent") |>
+  separate(age_year, into = c("age", "year"), sep = "\\(") |> # need to separate by parentheses, but ( is a protected character
+  mutate(
+    year = str_replace(year, "\\)", ""),
+    percent = str_replace(percent, "[a-c]$", ""), # replaces a-c with nothing
+    percent = as.numeric(percent)) |>
+  filter(!(State %in% c("Total U.S.", "Northeast", "Midwest", "South", "West")))
+```
+
+We used `stringr` and regular expressions a couple of times above:
+
+* in `separate`, we split age and year at the open parentheses using `"\\("`
+* we stripped out the close parenthesis in `mutate`
+* to remove character superscripts, we replaced any character using `"[a-c]$"`
+
+Let's quickly visualize these data for the 12-17 age group; to make the plot readable, we'll treat `State` as a factor are reorder according to the median `percent` value. 
+
+```{r}
+data_marj |>
+  filter(age == "12-17") |> 
+  mutate(State = fct_reorder(State, percent)) |> 
+  ggplot(aes(x = State, y = percent, color = year)) + 
+    geom_point() + 
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+```{r}
+data("nyc_airbnb")
+
+nyc_airbnb |>
+  filter(neighbourhood_group == "Manhattan") |> 
+  mutate(
+    neighbourhood = fct_reorder(neighbourhood, price)) |> 
+  ggplot(aes(x = neighbourhood, y = price)) +
+  geom_boxplot() +
+  coord_flip() + 
+  ylim(0, 1000)
+```
