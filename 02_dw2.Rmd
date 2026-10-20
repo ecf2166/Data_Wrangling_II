@@ -242,3 +242,130 @@ nyc_airbnb |>
   coord_flip() + 
   ylim(0, 1000)
 ```
+
+### Restaurant inspections
+
+As a kind of involved example of strings and factors, we'll take a look at the [NYC Restuarant Inspections](dataset_restaurant_inspections.html) data. Although we won't talk about this in detail now, it's worth mentioning that these data were collected using the NYC Open Data API; code is available with the data description.
+
+First we'll import the data, clean a variable name, and take a quick look.
+
+```{r}
+data("rest_inspec")
+
+rest_inspec = 
+	rest_inspec |> 
+	rename(borough = boro)
+
+
+rest_inspec |> 
+  group_by(borough, grade) |> 
+  summarize(n = n()) |> 
+  pivot_wider(names_from = grade, values_from = n)
+```
+
+To simplify things, I'll remove inspections with scores other than `A`, `B`, or `C`, and also remove the restaurants with missing borough information. I'll also clean up borough names a bit.
+
+```{r}
+rest_inspec =
+  rest_inspec |>
+  filter(grade %in% c("A", "B", "C"), borough != "0") |> 
+  mutate(borough = str_to_title(borough))
+
+rest_inspec |> 
+  group_by(borough, grade) |> 
+  summarize(n = n()) |> 
+  pivot_wider(names_from = grade, values_from = n)
+```
+
+Look for pizza places
+```{r}
+rest_inspec |> 
+  filter(str_detect(dba, "Pizza")) |> # a lot of only uppercase in dba column
+  count(borough, grade) |> 
+  pivot_wider(names_from = grade, values_from = n)
+```
+
+That doesn't look right -- for sure there are more pizza place ratings than that! The problem is that the match in `str_detect` is case-sensitive until we tell it not to be:
+
+```{r}
+rest_inspec |> 
+  filter(str_detect(dba, "[Pp][Ii][Zz][Zz][Aa]")) |> 
+  group_by(borough, grade) |> 
+  summarize(n = n()) |> 
+  pivot_wider(names_from = grade, values_from = n)
+```
+
+```{r}
+rest_inspec |> 
+  mutate(dba = str_to_upper(dba)) |> 
+  filter(str_detect(dba, "PIZZA")) |> 
+  group_by(borough, grade) |> 
+  summarize(n = n()) |> 
+  pivot_wider(names_from = grade, values_from = n)
+```
+
+The table is okay but I'd like to visualize this. 
+
+```{r}
+rest_inspec |> 
+  mutate(dba = str_to_upper(dba)) |> 
+  filter(str_detect(dba, "PIZZA")) |>
+  ggplot(aes(x = borough, fill = grade)) + 
+  geom_bar() 
+```
+
+Might help to have things in a different order -- maybe number of pizza places? Fortunately this can be done using `fct_infreq`. 
+
+```{r}
+rest_inspec |> 
+  mutate(dba = str_to_upper(dba), borough = fct_infreq(borough)) |> #orders by frequency
+  filter(str_detect(dba, "PIZZA")) |>
+  ggplot(aes(x = borough, fill = grade)) + 
+  geom_bar() 
+```
+
+Suppose I want to rename a borough. I could try using `str_replace`.
+
+This doesn't work
+
+```{r}
+rest_inspec |> 
+  mutate(dba = str_to_upper(dba)) |> 
+  filter(str_detect(dba, "PIZZA")) |>
+  mutate(
+    borough = fct_infreq(borough), #infreq first
+    borough = str_replace(borough, "Manhattan", "The City")) |> #str only works on char vars --> puts everything back in alphabetical order
+  ggplot(aes(x = borough, fill = grade)) + 
+  geom_bar() 
+```
+
+This renamed the borough, but then converted the result back to a string -- which, when plotted, was implicitly made a factor and ordered alphabetically. I could switch the order in which I rename and encode the factor order I want, but that might not always work. 
+
+If I tried base R (maybe because I found some code online), I might try to do this using `replace`. (also wrong!!)
+
+```{r, warning = TRUE}
+rest_inspec |> 
+  mutate(dba = str_to_upper(dba)) |> 
+  filter(str_detect(dba, "PIZZA")) |>
+  mutate(
+    borough = fct_infreq(borough),
+    borough = replace(borough, which(borough == "Manhattan"), "The City")) |>
+  ggplot(aes(x = borough, fill = grade)) + 
+  geom_bar()
+```
+
+That didn't work at all! Factors have very specific values, trying to use a value that is not an existing factor level won't work. 
+
+Fortunately there is a dedicated function for renaming factor levels:
+
+```{r}
+rest_inspec |> 
+  filter(str_detect(dba, regex("pizza", ignore_case = TRUE))) |>
+  mutate(
+    borough = fct_infreq(borough),
+    borough = fct_recode(borough, "The City" = "Manhattan")) |>
+  ggplot(aes(x = borough, fill = grade)) + 
+  geom_bar()
+```
+
+Success!
